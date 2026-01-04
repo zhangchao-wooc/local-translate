@@ -1,10 +1,10 @@
 {
-  "name": "translate",
+  "name": "local-translate",
   "description": "Translate and replace local files",
   "author": "wooc.zhang",
   "email": "wooc.zhang@gmail.com",
   "private": true,
-  "version": "0.0.0",
+  "version": "0.0.1",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -13,17 +13,22 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "antd": "^6.1.3",
     "axios": "^1.13.2",
+    "rc-field-form": "^2.7.1",
     "react": "^19.2.0",
-    "react-dom": "^19.2.0"
+    "react-dom": "^19.2.0",
+    "react-router": "^7.11.0",
+    "react-router-dom": "^7.11.0"
   },
   "devDependencies": {
+    "@ant-design/icons": "^6.1.0",
+    "@ant-design/pro-components": "^2.8.10",
     "@eslint/js": "^9.39.1",
     "@types/node": "^24.10.1",
     "@types/react": "^19.2.5",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^5.1.1",
+    "antd": "^6.1.3",
     "babel-plugin-react-compiler": "^1.0.0",
     "eslint": "^9.39.1",
     "eslint-plugin-react-hooks": "^7.0.1",
@@ -31,7 +36,8 @@
     "globals": "^16.5.0",
     "typescript": "~5.9.3",
     "typescript-eslint": "^8.46.4",
-    "vite": "^7.2.4"
+    "vite": "^7.2.4",
+    "vite-plugin-pages": "^0.33.2"
   },
   "license": "MIT"
 }
