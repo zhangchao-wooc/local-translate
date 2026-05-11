@@ -8,14 +8,14 @@ import defaultProps from './_defaultProps.tsx';
 // import logoImage from '../assets/logo.png';
 
 const Layout = (props: { children: ReactElement | null}) => {
-  const [pathname, setPathname] = useState('/list/sub-page/sub-sub-page1');
+  const [pathname] = useState('/list/sub-page/sub-sub-page1');
   const navigate = useNavigate();
 
   return (
     <div
       id="test-pro-layout"
       style={{
-        height: '100vh',
+        minHeight: '100vh',
       }}
     >
       <ProLayout
@@ -72,8 +72,8 @@ const Layout = (props: { children: ReactElement | null}) => {
         <PageContainer>
           <ProCard
             style={{
-              height: '100vh',
-              minHeight: 800,
+              minHeight: 'calc(100vh - 160px)',
+              height: 'auto',
             }}
           >
             {props.children}

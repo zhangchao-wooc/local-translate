@@ -1,0 +1,53 @@
+.home {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.header {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.section {
+  height: calc(100% - 80px);
+  min-height: 520px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.panel {
+  border: 1px solid #f0f0f0;
+  border-radius: 8px;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 0;
+}
+
+.editor {
+  flex: 1;
+  min-height: 0;
+}
+
+@media (max-width: 960px) {
+  .section {
+    grid-template-columns: 1fr;
+    height: auto;
+  }
+
+  .panel {
+    height: 420px;
+  }
+}

@@ -1,22 +1,50 @@
-export const LanguageList = [
-    { label: '英文（美国）', value: 'en_US' },
-    { label: '德文（德国）', value: 'de_DE' },
-    { label: '西班牙文（西班牙）', value: 'es_ES' },
-    { label: '中文（简体）', value: 'zh_CN' },
-    { label: '丹麦文（丹麦）', value: 'da_DK' },
-    { label: '法文（法国）', value: 'fr_FR' },
-    { label: '意大利文（意大利）', value: 'it_IT' },
-    { label: '日文（日本）', value: 'ja_JP' },
-    { label: '韩文（韩国）', value: 'ko_KR' },
-    { label: '俄文（俄罗斯）', value: 'ru_RU' },
-    { label: '捷克文（捷克共和国）', value: 'cs_CZ' },
-    { label: '荷兰文（荷兰）', value: 'nl_NL' },
-    { label: '乌克兰文（乌克兰）', value: 'uk_UA' },
-    { label: '瑞典文（瑞典）', value: 'sv_SE' },
-    { label: '匈牙利文（匈牙利）', value: 'hu_HU' },
-    { label: '罗马尼亚文（罗马尼亚）', value: 'ro_RO' },
-    { label: '克罗地亚文（克罗地亚）', value: 'hr_HR' },
-    { label: '保加利亚文（保加利亚）', value: 'bg_BG' },
-    { label: '芬兰文（芬兰）', value: 'fi_FI' },
-    { label: '斯洛伐克文（斯洛伐克）', value: 'sk_SK' }
-]
+export type LanguageOption = {
+  label: string;
+  value: string;
+};
+
+export const LanguageList: LanguageOption[] = [
+  { label: 'English (United States)', value: 'en-US' },
+  { label: 'English (United Kingdom)', value: 'en-GB' },
+  { label: 'English (Australia)', value: 'en-AU' },
+  { label: 'Chinese (Simplified, China)', value: 'zh-CN' },
+  { label: 'Chinese (Simplified, Singapore)', value: 'zh-SG' },
+  { label: 'Chinese (Traditional, Taiwan)', value: 'zh-TW' },
+  { label: 'Chinese (Traditional, Hong Kong)', value: 'zh-HK' },
+  { label: 'Chinese (Traditional, Macao)', value: 'zh-MO' },
+  { label: 'Japanese (Japan)', value: 'ja-JP' },
+  { label: 'Korean (Korea)', value: 'ko-KR' },
+  { label: 'French (France)', value: 'fr-FR' },
+  { label: 'French (Canada)', value: 'fr-CA' },
+  { label: 'German (Germany)', value: 'de-DE' },
+  { label: 'Spanish (Spain)', value: 'es-ES' },
+  { label: 'Spanish (Mexico)', value: 'es-MX' },
+  { label: 'Portuguese (Brazil)', value: 'pt-BR' },
+  { label: 'Portuguese (Portugal)', value: 'pt-PT' },
+  { label: 'Italian (Italy)', value: 'it-IT' },
+  { label: 'Dutch (Netherlands)', value: 'nl-NL' },
+  { label: 'Russian (Russia)', value: 'ru-RU' },
+  { label: 'Ukrainian (Ukraine)', value: 'uk-UA' },
+  { label: 'Polish (Poland)', value: 'pl-PL' },
+  { label: 'Turkish (Turkey)', value: 'tr-TR' },
+  { label: 'Arabic (Saudi Arabia)', value: 'ar-SA' },
+  { label: 'Thai (Thailand)', value: 'th-TH' },
+  { label: 'Vietnamese (Vietnam)', value: 'vi-VN' },
+  { label: 'Indonesian (Indonesia)', value: 'id-ID' },
+  { label: 'Hindi (India)', value: 'hi-IN' },
+  { label: 'Czech (Czechia)', value: 'cs-CZ' },
+  { label: 'Danish (Denmark)', value: 'da-DK' },
+  { label: 'Finnish (Finland)', value: 'fi-FI' },
+  { label: 'Swedish (Sweden)', value: 'sv-SE' },
+  { label: 'Norwegian Bokmal (Norway)', value: 'nb-NO' },
+  { label: 'Hungarian (Hungary)', value: 'hu-HU' },
+  { label: 'Romanian (Romania)', value: 'ro-RO' },
+  { label: 'Bulgarian (Bulgaria)', value: 'bg-BG' },
+  { label: 'Croatian (Croatia)', value: 'hr-HR' },
+  { label: 'Slovak (Slovakia)', value: 'sk-SK' },
+  { label: 'Greek (Greece)', value: 'el-GR' },
+];
+
+export const DEFAULT_LANGUAGE_FILE_NAME_MAP: Record<string, string> = Object.fromEntries(
+  LanguageList.map((item) => [item.value, item.value]),
+);
