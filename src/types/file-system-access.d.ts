@@ -15,6 +15,7 @@ interface FileSystemFileHandle extends FileSystemHandle {
 
 interface FileSystemDirectoryHandle extends FileSystemHandle {
   getFileHandle(name: string, options?: { create?: boolean }): Promise<FileSystemFileHandle>;
+  entries(): AsyncIterableIterator<[string, FileSystemHandle]>;
 }
 
 interface OpenFilePickerOptions {

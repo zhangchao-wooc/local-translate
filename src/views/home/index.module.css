@@ -18,11 +18,42 @@
   gap: 8px;
 }
 
+.outputFilesPanel {
+  border: 1px solid #f0f0f0;
+  border-radius: 6px;
+  padding: 8px;
+  min-height: 84px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.outputFilesList {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: flex-start;
+}
+
+.changeLog {
+  margin: 0;
+}
+
+.changeLogPre {
+  margin: 0;
+  max-height: 180px;
+  overflow: auto;
+  padding: 8px;
+  border: 1px solid #f0f0f0;
+  border-radius: 6px;
+  background: #fafafa;
+}
+
 .section {
   height: calc(100% - 80px);
   min-height: 520px;
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: 1fr;
   gap: 12px;
 }
 
@@ -34,12 +65,16 @@
   flex-direction: column;
   gap: 8px;
   min-height: 0;
+  
 }
 
 .editor {
   flex: 1;
   min-height: 0;
+  border-radius: var(--ant-border-radius-lg);
+  overflow: hidden;
 }
+
 
 @media (max-width: 960px) {
   .section {

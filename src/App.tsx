@@ -5,6 +5,7 @@ import { useLocalStorageState } from 'ahooks';
 import Layout from './layout';
 import defaultConfig from '../config.json';
 import type { TranslateConfig } from './modules/translate/types';
+import { DEFAULT_OUTPUT_FILE_FORMAT } from './common/file-format';
 //@ts-expect-error
 import routes from '@@react-pages';
 import './App.css';
@@ -27,6 +28,7 @@ const migrateConfig = (input?: TranslateConfig): TranslateConfig => {
 
   merged.file.sourceLanguage = normalizeLanguageTag(merged.file.sourceLanguage);
   merged.file.targetLanguage = normalizeLanguageTag(merged.file.targetLanguage);
+  merged.file.outputFileFormat = merged.file.outputFileFormat || DEFAULT_OUTPUT_FILE_FORMAT;
   merged.file.languageFileNameRule = merged.file.languageFileNameRule || 'hyphen';
 
   merged.file.languageFileNameMap = Object.entries(merged.file.languageFileNameMap || {}).reduce<Record<string, string>>(

@@ -1,3 +1,5 @@
+import type { OutputFileFormat } from '../../common/file-format';
+
 export type FileFormat = 'json' | 'csv' | 'xml';
 export type LanguageFileNameRule = 'hyphen' | 'underscore' | 'language';
 
@@ -13,6 +15,7 @@ export type TranslateConfig = {
     outputPath?: string;
     sourceLanguage: string;
     targetLanguage: string;
+    outputFileFormat?: OutputFileFormat;
     languageFileNameRule?: LanguageFileNameRule;
     languageFileNameMap?: Record<string, string>;
   };
