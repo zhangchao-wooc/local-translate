@@ -52,9 +52,6 @@ const normalizeConfig = (config: TranslateConfig): TranslateConfig => {
   const sourceLanguage = normalizeLanguageTag(
     config.file.sourceLanguage || "en-US",
   );
-  const targetLanguage = normalizeLanguageTag(
-    config.file.targetLanguage || "zh-CN",
-  );
   const oldMap = config.file.languageFileNameMap || {};
 
   const normalizedMap = Object.entries(oldMap).reduce<Record<string, string>>(
@@ -70,7 +67,6 @@ const normalizeConfig = (config: TranslateConfig): TranslateConfig => {
     file: {
       ...config.file,
       sourceLanguage,
-      targetLanguage,
       outputFileFormat: config.file.outputFileFormat || DEFAULT_OUTPUT_FILE_FORMAT,
       languageFileNameRule: config.file.languageFileNameRule || "hyphen",
       languageFileNameMap: normalizedMap,
@@ -145,7 +141,6 @@ const SettingPage = () => {
             file: {
               ...fileValue,
               sourceLanguage: normalizeLanguageTag(fileValue.sourceLanguage),
-              targetLanguage: normalizeLanguageTag(fileValue.targetLanguage),
               outputFileFormat: fileValue.outputFileFormat || DEFAULT_OUTPUT_FILE_FORMAT,
               languageFileNameRule: fileValue.languageFileNameRule || "hyphen",
               languageFileNameMap,
@@ -216,14 +211,6 @@ const SettingPage = () => {
             <ProFormSelect
               name={["file", "sourceLanguage"]}
               label="源语言"
-              width="md"
-              options={LanguageList}
-              showSearch
-              rules={[{ required: true }]}
-            />
-            <ProFormSelect
-              name={["file", "targetLanguage"]}
-              label="目标语言"
               width="md"
               options={LanguageList}
               showSearch

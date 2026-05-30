@@ -1,25 +1,40 @@
-import { useMemo, useState } from "react";
-import { Alert, Button, Modal, Space, Tag, Typography, message } from "antd";
+import { useEffect, useMemo, useState } from "react";
+import {
+  Alert,
+  Button,
+  Form,
+  Input,
+  Modal,
+  Select,
+  Space,
+  Tag,
+  Typography,
+  message,
+} from "antd";
 import Editor, { type OnChange } from "@monaco-editor/react";
 import { useLocalStorageState } from "ahooks";
-import { useNavigate } from "react-router";
+import { useLocation, useNavigate } from "react-router";
 import styles from "./index.module.css";
 import {
+  parseBinaryDocument,
   parseDocument,
-  serializeDocument,
 } from "../../modules/translate/format";
-import { normalizePath } from "../../modules/translate/path";
 import {
   listDirectoryFiles,
+  mergeAndWriteLanguageFile,
   pickInputFile,
   mergeAndWriteTranslatedFile,
   pickOutputDirectory,
   supportsFileSystemAccess,
   type DirectoryFileItem,
   type FileChangeSet,
-  type PickedInput,
   type PickedOutput,
 } from "../../modules/translate/file-system";
+import {
+  clearOutputDirectoryHandle,
+  loadOutputDirectoryHandle,
+  saveOutputDirectoryHandle,
+} from "../../modules/translate/handle-storage";
 import { runTranslation } from "../../modules/translate/translator";
 import type { TranslateConfig } from "../../modules/translate/types";
 import { appendOperationRecord } from "../../modules/operation-history/storage";
@@ -33,6 +48,19 @@ type MatchedOutputFile = {
   fileName: string;
   format: OutputFileFormat;
 };
+
+type SourceLanguageOption = {
+  label: string;
+  value: string;
+  fileName: string;
+};
+
+type AddLanguageFormValues = {
+  sourceLanguage: string;
+  targetLanguages: Array<{ key: string }>;
+};
+
+let cachedOutputSelection: PickedOutput | null = null;
 
 const resolveLanguageFileBaseName = (
   languageTag: string,
@@ -87,22 +115,137 @@ const getMatchedOutputFiles = (
     .sort((a, b) => a.fileName.localeCompare(b.fileName, "zh-CN"));
 };
 
+const normalizeLanguageKey = (key: string): string =>
+  key.toLowerCase().replace(/[-_]/g, "");
+
+const isEnglishLanguageKey = (key: string): boolean =>
+  normalizeLanguageKey(key).startsWith("en");
+
+const getSourceLanguageOptions = (
+  files: DirectoryFileItem[],
+  config?: TranslateConfig,
+): SourceLanguageOption[] => {
+  if (!config) return [];
+  const ext = config.file.outputFileFormat || DEFAULT_OUTPUT_FILE_FORMAT;
+
+  return files
+    .filter((item) => item.extension === ext)
+    .map((item) => {
+      const idx = item.fileName.lastIndexOf(".");
+      const baseName = idx >= 0 ? item.fileName.slice(0, idx) : item.fileName;
+      return { label: baseName, value: baseName, fileName: item.fileName };
+    })
+    .sort((a, b) => a.label.localeCompare(b.label, "zh-CN"));
+};
+
+const toSuggestedLanguageKey = (
+  input: string,
+  rule: TranslateConfig["file"]["languageFileNameRule"] = "hyphen",
+): string => {
+  const compact = input.trim().replace(/\.[^.]+$/, "");
+  const parts = compact.split(/[-_]/).filter(Boolean);
+  const language = (parts[0] || compact).toLowerCase();
+  const region = parts[1]?.toUpperCase();
+  if (rule === "language") return language;
+  if (!region) return language;
+  return rule === "underscore"
+    ? `${language}_${region}`
+    : `${language}-${region}`;
+};
+
+const isKeyMatchingRule = (
+  key: string,
+  rule: TranslateConfig["file"]["languageFileNameRule"] = "hyphen",
+): boolean => {
+  if (rule === "language") return /^[a-z]{2,3}$/.test(key);
+  if (rule === "underscore") return /^[a-z]{2,3}_[A-Z]{2,3}$/.test(key);
+  return /^[a-z]{2,3}-[A-Z]{2,3}$/.test(key);
+};
+
 const HomePage = () => {
   const navigate = useNavigate();
+  const location = useLocation();
   const [messageApi, contextHolder] = message.useMessage();
+  const [addLanguageForm] = Form.useForm<AddLanguageFormValues>();
   const [config, setConfig] = useLocalStorageState<TranslateConfig>("config");
-  const [input, setInput] = useState<PickedInput | null>(null);
-  const [output, setOutput] = useState<PickedOutput | null>(null);
+  const [output, setOutput] = useState<PickedOutput | null>(
+    cachedOutputSelection,
+  );
   const [sourceText, setSourceText] = useState('{\n  "name": "name"\n}');
-  const [translatedText, setTranslatedText] = useState("");
   const [lastChangeLog, setLastChangeLog] = useState<FileChangeSet | null>(
     null,
   );
   const [matchedOutputFiles, setMatchedOutputFiles] = useState<
     MatchedOutputFile[]
   >([]);
+  const [sourceLanguageOptions, setSourceLanguageOptions] = useState<
+    SourceLanguageOption[]
+  >([]);
+  const [addLanguageModalOpen, setAddLanguageModalOpen] = useState(false);
   const [processing, setProcessing] = useState(false);
   const fsSupported = useMemo(() => supportsFileSystemAccess(), []);
+  const currentFileRule = config?.file.languageFileNameRule || "hyphen";
+  const sourceEntryCount = useMemo(() => {
+    try {
+      const parsed = JSON.parse(sourceText.trim()) as Record<string, unknown>;
+      return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+        ? Object.keys(parsed).length
+        : 0;
+    } catch {
+      return 0;
+    }
+  }, [sourceText]);
+  const existingFileBaseNameSet = useMemo(
+    () =>
+      new Set(sourceLanguageOptions.map((item) => item.value.toLowerCase())),
+    [sourceLanguageOptions],
+  );
+
+  useEffect(() => {
+    if (!fsSupported || cachedOutputSelection?.handle) return;
+
+    const restoreOutputHandle = async () => {
+      try {
+        const handle = await loadOutputDirectoryHandle();
+        if (!handle) return;
+        const nextOutput = { handle };
+        setOutput(nextOutput);
+        cachedOutputSelection = nextOutput;
+      } catch {
+        // Ignore restore errors and keep current empty state.
+      }
+    };
+
+    restoreOutputHandle();
+  }, [fsSupported]);
+
+  useEffect(() => {
+    const outputHandle = output?.handle;
+    if (!outputHandle) {
+      setMatchedOutputFiles([]);
+      setSourceLanguageOptions([]);
+      return;
+    }
+
+    const refreshMatchedFiles = async () => {
+      const files = await listDirectoryFiles(outputHandle);
+      setMatchedOutputFiles(getMatchedOutputFiles(files, config || undefined));
+      setSourceLanguageOptions(
+        getSourceLanguageOptions(files, config || undefined),
+      );
+    };
+
+    refreshMatchedFiles().catch(() => {
+      setMatchedOutputFiles([]);
+      setSourceLanguageOptions([]);
+    });
+  }, [
+    location.key,
+    output?.handle,
+    config?.file.outputFileFormat,
+    config?.file.languageFileNameRule,
+    config?.file.languageFileNameMap,
+  ]);
 
   const options = {
     minimap: { enabled: false },
@@ -134,21 +277,10 @@ const HomePage = () => {
   const selectInputFile = async () => {
     try {
       const picked = await pickInputFile();
-      setInput(picked);
-      setSourceText(picked.text);
-
-      if (config) {
-        const nextConfig: TranslateConfig = {
-          ...config,
-          file: {
-            ...config.file,
-            inputPath: picked.fullPath || picked.fileName,
-          },
-        };
-        setConfig(nextConfig);
-      }
-
-      messageApi.success(`已读取文件: ${picked.fileName}`);
+      const parsed = picked.arrayBuffer
+        ? parseBinaryDocument(picked.arrayBuffer, picked.fileName)
+        : parseDocument(picked.text, picked.fileName);
+      setSourceText(`${JSON.stringify(parsed.source, null, 2)}\n`);
     } catch (error) {
       if (isUserCancelSelection(error)) {
         messageApi.info("已取消选择");
@@ -162,6 +294,12 @@ const HomePage = () => {
     try {
       const selected = await pickOutputDirectory();
       setOutput(selected);
+      cachedOutputSelection = selected;
+      if (selected.handle) {
+        await saveOutputDirectoryHandle(selected.handle);
+      } else {
+        await clearOutputDirectoryHandle();
+      }
 
       if (selected.handle) {
         const files = await listDirectoryFiles(selected.handle);
@@ -259,18 +397,47 @@ const HomePage = () => {
       return;
     }
 
+    const trimmedSourceText = sourceText.trim();
+    if (!trimmedSourceText) {
+      messageApi.warning("新增翻译内容为空，请先填写后再执行翻译");
+      return;
+    }
+
+    let parsedSource: Record<string, unknown>;
+    try {
+      parsedSource = JSON.parse(trimmedSourceText) as Record<string, unknown>;
+    } catch {
+      messageApi.error("新增翻译内容不是有效的 JSON，请修正后重试");
+      return;
+    }
+
+    if (
+      !parsedSource ||
+      typeof parsedSource !== "object" ||
+      Array.isArray(parsedSource) ||
+      Object.keys(parsedSource).length === 0
+    ) {
+      messageApi.warning("新增翻译 JSON 为空，请至少提供一条键值后再执行翻译");
+      return;
+    }
+
     setProcessing(true);
     try {
-      const parsed = parseDocument(
-        sourceText,
-        input?.fileName || `${config.file.sourceLanguage}.json`,
+      const translated = await runTranslation(parsedSource, config);
+      const sourceFileName = `${config.file.sourceLanguage}.json`;
+
+      const sourceWriteResult = await mergeAndWriteLanguageFile(
+        sourceFileName,
+        config.file.sourceLanguage,
+        parsedSource,
+        config,
+        output || {},
+        confirmCreateMissingFile,
       );
-      const translated = await runTranslation(parsed.source, config);
-      const outputText = serializeDocument(parsed.format, translated.content);
-      setTranslatedText(outputText);
 
       const writeResult = await mergeAndWriteTranslatedFile(
-        input?.fileName || `${config.file.sourceLanguage}.json`,
+        sourceFileName,
+        translated.language,
         translated.content,
         config,
         output || {},
@@ -278,7 +445,9 @@ const HomePage = () => {
       );
 
       if (writeResult.mode === "direct") {
-        messageApi.success(`翻译并写回成功: ${writeResult.fileName}`);
+        messageApi.success(
+          `翻译并写回成功: 源文件 ${sourceWriteResult.fileName}，目标文件 ${writeResult.fileName}`,
+        );
         if (writeResult.changes) {
           setLastChangeLog(writeResult.changes);
           showChangeResultModal(writeResult.changes);
@@ -286,8 +455,7 @@ const HomePage = () => {
             id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
             operatedAt: new Date().toISOString(),
             operationConfig: config,
-            sourceFileName:
-              input?.fileName || `${config.file.sourceLanguage}.json`,
+            sourceFileName,
             outputDirectoryName: output.handle?.name || "",
             fileChange: writeResult.changes,
           });
@@ -296,6 +464,108 @@ const HomePage = () => {
         messageApi.success(`翻译成功，已下载文件: ${writeResult.fileName}`);
       }
     } catch (error) {
+      messageApi.error((error as Error).message);
+    } finally {
+      setProcessing(false);
+    }
+  };
+
+  const openAddLanguageModal = () => {
+    if (!output?.handle) {
+      messageApi.error("请先选择输出目录");
+      return;
+    }
+    if (sourceLanguageOptions.length === 0) {
+      messageApi.error("输出目录未解析到可用语言文件");
+      return;
+    }
+
+    const englishOption = sourceLanguageOptions.find((item) =>
+      isEnglishLanguageKey(item.value),
+    );
+    const defaultSourceLanguage =
+      englishOption?.value || sourceLanguageOptions[0].value;
+
+    addLanguageForm.setFieldsValue({
+      sourceLanguage: defaultSourceLanguage,
+      targetLanguages: [{ key: "" }],
+    });
+    setAddLanguageModalOpen(true);
+  };
+
+  const executeAddLanguageTranslation = async () => {
+    if (!config) {
+      messageApi.error("配置未初始化，请先到设置页保存配置");
+      return;
+    }
+    if (!output?.handle) {
+      messageApi.error("请先选择输出目录后再执行写回");
+      return;
+    }
+
+    try {
+      const values = await addLanguageForm.validateFields();
+      const sourceOption = sourceLanguageOptions.find(
+        (item) => item.value === values.sourceLanguage,
+      );
+      if (!sourceOption) {
+        messageApi.error("源语言文件不存在，请重新选择");
+        return;
+      }
+
+      const targetLanguages = (values.targetLanguages || [])
+        .map((item) => item?.key?.trim())
+        .filter((key): key is string => Boolean(key));
+      const uniqueTargets = Array.from(new Set(targetLanguages)).filter(
+        (key) => key !== values.sourceLanguage,
+      );
+
+      if (uniqueTargets.length === 0) {
+        messageApi.error("请至少填写一个有效的新语言 key");
+        return;
+      }
+
+      setProcessing(true);
+      const sourceHandle = await output.handle.getFileHandle(
+        sourceOption.fileName,
+      );
+      const sourceFile = await sourceHandle.getFile();
+      const parsedSource = sourceOption.fileName.toLowerCase().endsWith(".xlsx")
+        ? parseBinaryDocument(
+            await sourceFile.arrayBuffer(),
+            sourceOption.fileName,
+          )
+        : parseDocument(await sourceFile.text(), sourceOption.fileName);
+
+      for (const targetKey of uniqueTargets) {
+        const translated = await runTranslation(
+          parsedSource.source,
+          config,
+          targetKey,
+        );
+        await mergeAndWriteLanguageFile(
+          sourceOption.fileName,
+          targetKey,
+          translated.content,
+          config,
+          output,
+          confirmCreateMissingFile,
+        );
+      }
+
+      setAddLanguageModalOpen(false);
+      messageApi.success(`新增语言写回成功，共 ${uniqueTargets.length} 个`);
+      const files = await listDirectoryFiles(output.handle);
+      setMatchedOutputFiles(getMatchedOutputFiles(files, config));
+      setSourceLanguageOptions(getSourceLanguageOptions(files, config));
+    } catch (error) {
+      if (
+        typeof error === "object" &&
+        error !== null &&
+        "errorFields" in error
+      ) {
+        return;
+      }
       messageApi.error((error as Error).message);
     } finally {
       setProcessing(false);
@@ -317,23 +587,28 @@ const HomePage = () => {
         />
       )}
       <header className={styles.header}>
-        <Space wrap>
-          <Button onClick={selectInputFile}>选择输入文件</Button>
-          <Button onClick={selectOutputDirectory}>选择输出目录</Button>
-          <Button
-            type="primary"
-            loading={processing}
-            onClick={executeTranslation}
-          >
-            执行翻译并写回
-          </Button>
-        </Space>
+        <Typography.Text strong>输出文件夹</Typography.Text>
         <div className={styles.outputFilesPanel}>
-          <Typography.Text strong>
-            匹配文件（
-            {config?.file.outputFileFormat ||
-              DEFAULT_OUTPUT_FILE_FORMAT}）: {matchedOutputFiles.length}
-          </Typography.Text>
+          <div className={styles.headerActions}>
+            <div className={styles.meta}>
+              <Button type="primary" onClick={selectOutputDirectory}>
+                选择输出目录
+              </Button>
+              <Button type="primary" onClick={openAddLanguageModal}>
+                新增语言
+              </Button>
+            </div>
+            <Typography.Text>
+              匹配文件（
+              {config?.file.outputFileFormat ||
+                DEFAULT_OUTPUT_FILE_FORMAT}）:{" "}
+              <Typography.Text style={{ color: "var(--ant-color-primary)" }}>
+                {matchedOutputFiles.length}
+              </Typography.Text>
+            </Typography.Text>
+          </div>
+
+          <Tag color="gold">当前输出目录: {output?.handle?.name || ""}</Tag>
           <div className={styles.outputFilesList}>
             {matchedOutputFiles.length > 0 ? (
               matchedOutputFiles.map((item) => (
@@ -352,18 +627,7 @@ const HomePage = () => {
             )}
           </div>
         </div>
-        <div className={styles.meta}>
-          <Tag color="blue">
-            输入:{" "}
-            {input?.fileName ||
-              normalizePath(config?.file?.inputPath || "未选择")}
-          </Tag>
-          <Tag color="gold">
-            输出:{" "}
-            {output?.handle?.name ||
-              normalizePath(config?.file?.outputPath || "下载模式")}
-          </Tag>
-        </div>
+
         {lastChangeLog && (
           <div className={styles.changeLog}>
             <pre className={styles.changeLogPre}>
@@ -374,8 +638,30 @@ const HomePage = () => {
       </header>
 
       <section className={styles.section}>
-        <div className={styles.panel}>
+        <Space>
           <Typography.Text strong>新增翻译</Typography.Text>
+        </Space>
+        <div className={styles.panel}>
+          <div className={styles.panelActions}>
+            <Button onClick={selectInputFile}>选择输入文件</Button>
+            <Button
+              type="primary"
+              loading={processing}
+              onClick={executeTranslation}
+            >
+              执行翻译并写回
+            </Button>
+            <div className={styles.panelActionsRight}>
+              <Space>
+                <Typography.Text>
+                  词条数:{" "}
+                  <Typography.Text style={{ color: "var(--ant-color-primary)" }}>
+                    {sourceEntryCount}
+                  </Typography.Text>
+                </Typography.Text>
+              </Space>
+            </div>
+          </div>
           <Editor
             className={styles.editor}
             width="100%"
@@ -388,6 +674,93 @@ const HomePage = () => {
           />
         </div>
       </section>
+
+      <Modal
+        title="新增语言"
+        open={addLanguageModalOpen}
+        onCancel={() => setAddLanguageModalOpen(false)}
+        onOk={executeAddLanguageTranslation}
+        okText="确认翻译并写回文件"
+        confirmLoading={processing}
+        width={720}
+      >
+        <Form form={addLanguageForm} layout="vertical">
+          <Form.Item
+            label="源语言"
+            name="sourceLanguage"
+            rules={[{ required: true, message: "请选择源语言" }]}
+          >
+            <Select
+              options={sourceLanguageOptions}
+              showSearch
+              optionFilterProp="label"
+              placeholder="请选择源语言"
+            />
+          </Form.Item>
+          <Form.List name="targetLanguages">
+            {(fields, { add, remove }) => (
+              <>
+                <Typography.Text
+                  strong
+                  style={{ display: "block", marginBottom: 8 }}
+                >
+                  新语言 key
+                </Typography.Text>
+                {fields.map((field) => (
+                  <Space
+                    key={field.key}
+                    style={{ display: "flex", marginBottom: 8 }}
+                    align="center"
+                  >
+                    <Form.Item
+                      {...field}
+                      name={[field.name, "key"]}
+                      validateTrigger={["onBlur", "onSubmit"]}
+                      rules={[
+                        { required: true, message: "请输入新语言 key" },
+                        {
+                          validator: async (_, value?: string) => {
+                            const key = (value || "").trim();
+                            if (!key) return;
+
+                            if (!isKeyMatchingRule(key, currentFileRule)) {
+                              const suggestion = toSuggestedLanguageKey(
+                                key,
+                                currentFileRule,
+                              );
+                              throw new Error(
+                                `格式不符合当前规则（${currentFileRule}），建议改为：${suggestion}`,
+                              );
+                            }
+
+                            if (
+                              existingFileBaseNameSet.has(key.toLowerCase())
+                            ) {
+                              throw new Error(
+                                `该语言 key 已存在于当前目录：${key}`,
+                              );
+                            }
+                          },
+                        },
+                      ]}
+                      style={{ minWidth: 420, marginBottom: 0 }}
+                    >
+                      <Input placeholder="如：fr、fr-FR、fr_FR" />
+                    </Form.Item>
+                    <Button
+                      style={{ marginBottom: 0 }}
+                      onClick={() => remove(field.name)}
+                    >
+                      删除
+                    </Button>
+                  </Space>
+                ))}
+                <Button onClick={() => add({ key: "" })}>新增输入框</Button>
+              </>
+            )}
+          </Form.List>
+        </Form>
+      </Modal>
     </div>
   );
 };

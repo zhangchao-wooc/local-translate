@@ -27,7 +27,6 @@ const migrateConfig = (input?: TranslateConfig): TranslateConfig => {
   };
 
   merged.file.sourceLanguage = normalizeLanguageTag(merged.file.sourceLanguage);
-  merged.file.targetLanguage = normalizeLanguageTag(merged.file.targetLanguage);
   merged.file.outputFileFormat = merged.file.outputFileFormat || DEFAULT_OUTPUT_FILE_FORMAT;
   merged.file.languageFileNameRule = merged.file.languageFileNameRule || 'hyphen';
 

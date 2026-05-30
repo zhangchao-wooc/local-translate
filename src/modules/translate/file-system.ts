@@ -1,6 +1,6 @@
-import { buildTargetFileName, parseDocument, serializeDocument } from './format';
+import { buildTargetFileName, parseBinaryDocument, parseDocument, serializeDocument } from './format';
 import { joinPath } from './path';
-import type { ReadFileResult, TranslateConfig } from './types';
+import type { FileFormat, ReadFileResult, TranslateConfig } from './types';
 
 export type PickedInput = ReadFileResult & { handle?: FileSystemFileHandle };
 export type PickedOutput = { handle?: FileSystemDirectoryHandle; pathHint?: string };
@@ -24,6 +24,14 @@ export type DirectoryFileItem = {
   extension: string;
 };
 
+const inferFormatFromFileName = (fileName: string): FileFormat => {
+  const lower = fileName.toLowerCase();
+  if (lower.endsWith('.csv')) return 'csv';
+  if (lower.endsWith('.xml')) return 'xml';
+  if (lower.endsWith('.xlsx')) return 'xlsx';
+  return 'json';
+};
+
 export const supportsFileSystemAccess = (): boolean => {
   return Boolean(window.showOpenFilePicker && window.showDirectoryPicker);
 };
@@ -31,21 +39,38 @@ export const supportsFileSystemAccess = (): boolean => {
 export const pickInputFile = async (): Promise<PickedInput> => {
   if (window.showOpenFilePicker) {
     const [handle] = await window.showOpenFilePicker({
-      types: [{ description: 'Translation Files', accept: { 'application/json': ['.json'], 'text/csv': ['.csv'], 'application/xml': ['.xml'] } }],
+      types: [{
+        description: 'Translation Files',
+        accept: {
+          'application/json': ['.json'],
+          'text/csv': ['.csv'],
+          'application/xml': ['.xml'],
+          'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': ['.xlsx'],
+        },
+      }],
     });
     const file = await handle.getFile();
+    const lowerName = file.name.toLowerCase();
+    if (lowerName.endsWith('.xlsx')) {
+      return { text: '', arrayBuffer: await file.arrayBuffer(), fileName: file.name, handle };
+    }
     return { text: await file.text(), fileName: file.name, handle };
   }
 
   const input = document.createElement('input');
   input.type = 'file';
-  input.accept = '.json,.csv,.xml';
+  input.accept = '.json,.csv,.xml,.xlsx';
   input.click();
 
   return new Promise((resolve, reject) => {
     input.onchange = async () => {
       const file = input.files?.[0];
       if (!file) return reject(new Error('No file selected'));
+      const lowerName = file.name.toLowerCase();
+      if (lowerName.endsWith('.xlsx')) {
+        resolve({ text: '', arrayBuffer: await file.arrayBuffer(), fileName: file.name });
+        return;
+      }
       resolve({ text: await file.text(), fileName: file.name });
     };
   });
@@ -71,14 +96,15 @@ export const listDirectoryFiles = async (handle: FileSystemDirectoryHandle): Pro
 };
 
 export const writeTranslatedFile = async (
-  content: string,
+  content: string | ArrayBuffer,
   sourceFileName: string,
+  language: string,
   config: TranslateConfig,
   output: PickedOutput
 ): Promise<WriteTranslatedFileResult> => {
   const mappedFileName = buildTargetFileName(
     sourceFileName,
-    config.file.targetLanguage,
+    language,
     config.file.languageFileNameRule,
     config.file.languageFileNameMap,
   );
@@ -91,7 +117,16 @@ export const writeTranslatedFile = async (
     return { fileName: mappedFileName, mode: 'direct' };
   }
 
-  const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
+  const fileLowerName = mappedFileName.toLowerCase();
+  const isXlsx = fileLowerName.endsWith('.xlsx');
+  const blob = new Blob(
+    [content],
+    {
+      type: isXlsx
+        ? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        : 'text/plain;charset=utf-8',
+    },
+  );
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement('a');
   anchor.href = url;
@@ -140,40 +175,42 @@ const buildChangeSet = (
   return { fileName, created, updated, added, deleted };
 };
 
-export const mergeAndWriteTranslatedFile = async (
+export const mergeAndWriteLanguageFile = async (
   sourceFileName: string,
-  translatedContent: Record<string, unknown>,
+  language: string,
+  content: Record<string, unknown>,
   config: TranslateConfig,
   output: PickedOutput,
   onMissingFile?: (fileName: string) => Promise<boolean>,
 ): Promise<WriteTranslatedFileResult> => {
   const mappedFileName = buildTargetFileName(
     sourceFileName,
-    config.file.targetLanguage,
+    language,
     config.file.languageFileNameRule,
     config.file.languageFileNameMap,
   );
 
   if (!output.handle) {
-    const outputText = serializeDocument(parseDocument('{}', mappedFileName).format, translatedContent);
-    return writeTranslatedFile(outputText, sourceFileName, config, output);
+    const outputText = serializeDocument(inferFormatFromFileName(mappedFileName), content);
+    return writeTranslatedFile(outputText, sourceFileName, language, config, output);
   }
 
   let targetHandle: FileSystemFileHandle | null = null;
   let beforeContent: Record<string, unknown> = {};
-  let mergedContent: Record<string, unknown> = { ...translatedContent };
-  let format = parseDocument('{}', mappedFileName).format;
+  let mergedContent: Record<string, unknown> = { ...content };
+  let format = inferFormatFromFileName(mappedFileName);
   let created = false;
 
   try {
     targetHandle = await output.handle.getFileHandle(mappedFileName);
     const currentFile = await targetHandle.getFile();
-    const currentText = await currentFile.text();
-    const parsedCurrent = parseDocument(currentText, mappedFileName);
+    const parsedCurrent = mappedFileName.toLowerCase().endsWith('.xlsx')
+      ? parseBinaryDocument(await currentFile.arrayBuffer(), mappedFileName)
+      : parseDocument(await currentFile.text(), mappedFileName);
     beforeContent = parsedCurrent.source;
     format = parsedCurrent.format;
-    // Translation result has higher priority and overwrites same keys from current file.
-    mergedContent = { ...beforeContent, ...translatedContent };
+    // New content has higher priority and overwrites same keys from current file.
+    mergedContent = { ...beforeContent, ...content };
   } catch {
     const shouldCreate = onMissingFile ? await onMissingFile(mappedFileName) : false;
     if (!shouldCreate) {
@@ -190,4 +227,22 @@ export const mergeAndWriteTranslatedFile = async (
   await writable.close();
 
   return { fileName: mappedFileName, mode: 'direct', changes: changeSet };
+};
+
+export const mergeAndWriteTranslatedFile = async (
+  sourceFileName: string,
+  language: string,
+  translatedContent: Record<string, unknown>,
+  config: TranslateConfig,
+  output: PickedOutput,
+  onMissingFile?: (fileName: string) => Promise<boolean>,
+): Promise<WriteTranslatedFileResult> => {
+  return mergeAndWriteLanguageFile(
+    sourceFileName,
+    language,
+    translatedContent,
+    config,
+    output,
+    onMissingFile,
+  );
 };

@@ -1,9 +1,11 @@
 import type { FileFormat, LanguageFileNameRule, ParsedTranslationDocument } from './types';
+import * as XLSX from 'xlsx';
 
 const inferFormatFromFileName = (fileName: string): FileFormat => {
   const lower = fileName.toLowerCase();
   if (lower.endsWith('.csv')) return 'csv';
   if (lower.endsWith('.xml')) return 'xml';
+  if (lower.endsWith('.xlsx')) return 'xlsx';
   return 'json';
 };
 
@@ -23,13 +25,62 @@ const parseCSV = (text: string): Record<string, unknown> => {
 const parseXML = (text: string): Record<string, unknown> => {
   const parser = new DOMParser();
   const doc = parser.parseFromString(text, 'application/xml');
-  const items = Array.from(doc.querySelectorAll('[key]'));
+  const parseError = doc.querySelector('parsererror');
+  if (parseError) {
+    throw new Error('XML 解析失败，请检查文件格式');
+  }
+
   const map: Record<string, string> = {};
-  items.forEach((node) => {
-    const key = node.getAttribute('key');
+  const attrKeyCandidates = ['key', 'name', 'id'];
+
+  // Priority 1: explicit key-like attributes.
+  const keyedNodes = Array.from(doc.querySelectorAll('*')).filter((node) =>
+    attrKeyCandidates.some((attr) => node.hasAttribute(attr)),
+  );
+  keyedNodes.forEach((node) => {
+    const keyAttr = attrKeyCandidates.find((attr) => node.hasAttribute(attr));
+    const key = keyAttr ? node.getAttribute(keyAttr) : '';
     if (!key) return;
-    map[key] = node.textContent || '';
+    const value = (node.textContent || '').trim();
+    if (value) map[key] = value;
   });
+
+  // Priority 2: generic leaf-node fallback, key by XML path.
+  if (Object.keys(map).length === 0 && doc.documentElement) {
+    const walk = (element: Element, path: string) => {
+      const childElements = Array.from(element.children);
+      if (childElements.length === 0) {
+        const value = (element.textContent || '').trim();
+        if (value) map[path] = value;
+        return;
+      }
+      childElements.forEach((child) => {
+        const nextPath = path ? `${path}.${child.tagName}` : child.tagName;
+        walk(child, nextPath);
+      });
+    };
+    walk(doc.documentElement, doc.documentElement.tagName);
+  }
+
+  return map;
+};
+
+const parseXLSX = (arrayBuffer: ArrayBuffer): Record<string, unknown> => {
+  const workbook = XLSX.read(arrayBuffer, { type: 'array' });
+  const firstSheetName = workbook.SheetNames[0];
+  if (!firstSheetName) return {};
+  const sheet = workbook.Sheets[firstSheetName];
+  const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, raw: false }) as unknown[][];
+  const map: Record<string, unknown> = {};
+
+  const hasHeader = String(rows[0]?.[0] ?? '').trim().toLowerCase() === 'key';
+  const start = hasHeader ? 1 : 0;
+  for (let i = start; i < rows.length; i += 1) {
+    const row = rows[i] || [];
+    const key = String(row[0] ?? '').trim();
+    if (!key) continue;
+    map[key] = row[1] ?? '';
+  }
   return map;
 };
 
@@ -39,44 +90,76 @@ const toCSV = (obj: Record<string, unknown>): string => {
     .join('\n');
 };
 
+const escapeXML = (value: string): string => {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;');
+};
+
 const toXML = (obj: Record<string, unknown>): string => {
   const body = Object.entries(obj)
-    .map(([k, v]) => `  <item key="${k}">${String(v ?? '')}</item>`)
+    .map(([k, v]) => `    <string name="${escapeXML(String(k))}">${escapeXML(String(v ?? ''))}</string>`)
     .join('\n');
-  return `<translations>\n${body}\n</translations>`;
+  return `<?xml version="1.0" encoding="UTF-8"?>\n<resources>\n${body}\n</resources>\n`;
+};
+
+const toXLSX = (obj: Record<string, unknown>): ArrayBuffer => {
+  const rows: Array<[string, string]> = [['key', 'value']];
+  Object.entries(obj).forEach(([key, value]) => {
+    rows.push([key, String(value ?? '')]);
+  });
+  const worksheet = XLSX.utils.aoa_to_sheet(rows);
+  const workbook = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(workbook, worksheet, 'translations');
+  const content = XLSX.write(workbook, { bookType: 'xlsx', type: 'array' }) as ArrayBuffer;
+  return content;
 };
 
 export const parseDocument = (text: string, fileName: string): ParsedTranslationDocument => {
   const format = inferFormatFromFileName(fileName);
   if (format === 'csv') return { format, source: parseCSV(text) };
   if (format === 'xml') return { format, source: parseXML(text) };
+  if (format === 'xlsx') {
+    throw new Error('xlsx 文件请使用 parseBinaryDocument 解析');
+  }
   return { format, source: JSON.parse(text) as Record<string, unknown> };
 };
 
-export const serializeDocument = (format: FileFormat, content: Record<string, unknown>): string => {
+export const parseBinaryDocument = (arrayBuffer: ArrayBuffer, fileName: string): ParsedTranslationDocument => {
+  const format = inferFormatFromFileName(fileName);
+  if (format === 'xlsx') return { format, source: parseXLSX(arrayBuffer) };
+  const text = new TextDecoder().decode(arrayBuffer);
+  return parseDocument(text, fileName);
+};
+
+export const serializeDocument = (format: FileFormat, content: Record<string, unknown>): string | ArrayBuffer => {
   if (format === 'csv') return toCSV(content);
   if (format === 'xml') return toXML(content);
+  if (format === 'xlsx') return toXLSX(content);
   return `${JSON.stringify(content, null, 2)}\n`;
 };
 
 export const buildTargetFileName = (
   sourceFileName: string,
-  targetLanguage: string,
+  languageTag: string,
   languageFileNameRule: LanguageFileNameRule = 'hyphen',
   languageFileNameMap?: Record<string, string>,
 ): string => {
   const idx = sourceFileName.lastIndexOf('.');
   const byRule =
     languageFileNameRule === 'underscore'
-      ? targetLanguage.replace(/-/g, '_')
+      ? languageTag.replace(/-/g, '_')
       : languageFileNameRule === 'language'
-        ? targetLanguage.split('-')[0] || targetLanguage
-        : targetLanguage;
-  const customMapped = languageFileNameMap?.[targetLanguage];
+        ? languageTag.split('-')[0] || languageTag
+        : languageTag;
+  const customMapped = languageFileNameMap?.[languageTag];
   const isRuleGeneratedValue =
-    customMapped === targetLanguage ||
-    customMapped === targetLanguage.replace(/-/g, '_') ||
-    customMapped === (targetLanguage.split('-')[0] || targetLanguage);
+    customMapped === languageTag ||
+    customMapped === languageTag.replace(/-/g, '_') ||
+    customMapped === (languageTag.split('-')[0] || languageTag);
   const mapped = customMapped && !isRuleGeneratedValue ? customMapped : byRule;
 
   if (idx < 0) return `${mapped}.json`;

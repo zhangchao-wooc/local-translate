@@ -5,20 +5,36 @@ const buildPrompt = (basePrompt: string, payload: TranslateRequestPayload): stri
   return `${basePrompt}\n\n${JSON.stringify(payload, null, 2)}`;
 };
 
-const findLanguagePayload = (response: Record<string, unknown>, targetLanguage: string) => {
-  const target = response[targetLanguage];
-  if (target && typeof target === 'object') return target as Record<string, unknown>;
-  const first = Object.values(response).find((v) => typeof v === 'object' && v !== null);
-  return (first || {}) as Record<string, unknown>;
+const extractLanguageAndContent = (
+  response: Record<string, unknown>,
+  preferredLanguage?: string,
+) => {
+  if (preferredLanguage) {
+    const preferred = response[preferredLanguage];
+    if (preferred && typeof preferred === 'object') {
+      return {
+        language: preferredLanguage,
+        content: preferred as Record<string, unknown>,
+      };
+    }
+  }
+
+  for (const [language, value] of Object.entries(response)) {
+    if (value && typeof value === 'object') {
+      return { language, content: value as Record<string, unknown> };
+    }
+  }
+  return { language: 'unknown', content: {} as Record<string, unknown> };
 };
 
 export const runTranslation = async (
   source: Record<string, unknown>,
   config: TranslateConfig,
+  targetLanguage?: string,
 ): Promise<TranslateResult> => {
   const payload: TranslateRequestPayload = {
     sourceLanguage: config.file.sourceLanguage,
-    targetLanguage: config.file.targetLanguage,
+    ...(targetLanguage ? { targetLanguage } : {}),
     content: source,
   };
 
@@ -46,8 +62,9 @@ export const runTranslation = async (
     }
   }
 
+  const extracted = extractLanguageAndContent(parsed, targetLanguage);
   return {
-    language: config.file.targetLanguage,
-    content: findLanguagePayload(parsed, config.file.targetLanguage),
+    language: targetLanguage || extracted.language,
+    content: extracted.content,
   };
 };

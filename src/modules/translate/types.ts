@@ -1,6 +1,6 @@
 import type { OutputFileFormat } from '../../common/file-format';
 
-export type FileFormat = 'json' | 'csv' | 'xml';
+export type FileFormat = 'json' | 'csv' | 'xml' | 'xlsx';
 export type LanguageFileNameRule = 'hyphen' | 'underscore' | 'language';
 
 export type TranslateConfig = {
@@ -14,7 +14,6 @@ export type TranslateConfig = {
     inputPath?: string;
     outputPath?: string;
     sourceLanguage: string;
-    targetLanguage: string;
     outputFileFormat?: OutputFileFormat;
     languageFileNameRule?: LanguageFileNameRule;
     languageFileNameMap?: Record<string, string>;
@@ -25,6 +24,7 @@ export type ReadFileResult = {
   text: string;
   fileName: string;
   fullPath?: string;
+  arrayBuffer?: ArrayBuffer;
 };
 
 export type ParsedTranslationDocument = {
@@ -34,7 +34,7 @@ export type ParsedTranslationDocument = {
 
 export type TranslateRequestPayload = {
   sourceLanguage: string;
-  targetLanguage: string;
+  targetLanguage?: string;
   content: Record<string, unknown>;
 };
 
