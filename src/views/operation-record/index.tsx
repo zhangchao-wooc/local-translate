@@ -14,6 +14,27 @@ const prettyJson = (value: unknown): string =>
   `${JSON.stringify(value, null, 2)}\n`;
 
 const renderChangeContent = (record: OperationRecord): string => {
+  if (record.affectedFileNames?.length || record.sourceEntries) {
+    const sourceEntries = record.sourceEntries || {};
+    const sourceEntryKeys = Object.keys(sourceEntries);
+    const lines: string[] = [];
+    lines.push(`影响文件(${record.affectedFileNames?.length || 0})`);
+    (record.affectedFileNames || []).forEach((fileName) => {
+      lines.push(`- ${fileName}`);
+    });
+    lines.push(`原词条(${sourceEntryKeys.length})`);
+    sourceEntryKeys.forEach((key) => {
+      lines.push(`- ${key}: ${JSON.stringify(sourceEntries[key])}`);
+    });
+
+    if (record.translatedEntries) {
+      lines.push("翻译结果 JSON:");
+      lines.push(prettyJson(record.translatedEntries).trimEnd());
+    }
+
+    return lines.join("\n");
+  }
+
   const lines: string[] = [];
   lines.push(`文件名: ${record.fileChange.fileName}`);
   lines.push(`新建文件: ${record.fileChange.created ? "是" : "否"}`);
@@ -62,8 +83,14 @@ const OperationRecordPage = () => {
       title: "文件",
       key: "file",
       render: (_, record) => (
-        <Space>
-          <Tag color="blue">{record.fileChange.fileName}</Tag>
+        <Space wrap>
+          {(record.affectedFileNames || [record.fileChange.fileName]).map(
+            (fileName) => (
+              <Tag key={fileName} color="blue">
+                {fileName}
+              </Tag>
+            ),
+          )}
           {record.fileChange.created ? (
             <Tag color="green">新建</Tag>
           ) : (

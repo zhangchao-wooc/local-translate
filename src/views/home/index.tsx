@@ -18,12 +18,12 @@ import styles from "./index.module.css";
 import {
   parseBinaryDocument,
   parseDocument,
+  buildTargetFileName,
 } from "../../modules/translate/format";
 import {
   listDirectoryFiles,
   mergeAndWriteLanguageFile,
   pickInputFile,
-  mergeAndWriteTranslatedFile,
   pickOutputDirectory,
   supportsFileSystemAccess,
   type DirectoryFileItem,
@@ -35,7 +35,11 @@ import {
   loadOutputDirectoryHandle,
   saveOutputDirectoryHandle,
 } from "../../modules/translate/handle-storage";
-import { runTranslation } from "../../modules/translate/translator";
+import {
+  runMultiLanguageTranslationAdaptive,
+  runTranslationAdaptive,
+  type TranslationExecutionMeta,
+} from "../../modules/translate/translator";
 import type { TranslateConfig } from "../../modules/translate/types";
 import { appendOperationRecord } from "../../modules/operation-history/storage";
 import { LanguageList } from "../../common/language";
@@ -58,6 +62,13 @@ type SourceLanguageOption = {
 type AddLanguageFormValues = {
   sourceLanguage: string;
   targetLanguages: Array<{ key: string }>;
+};
+
+type TranslationChangeSummary = {
+  affectedFileNames: string[];
+  sourceEntries: Record<string, unknown>;
+  translatedEntries: Record<string, Record<string, unknown>>;
+  fileChanges: FileChangeSet[];
 };
 
 let cachedOutputSelection: PickedOutput | null = null;
@@ -115,6 +126,28 @@ const getMatchedOutputFiles = (
     .sort((a, b) => a.fileName.localeCompare(b.fileName, "zh-CN"));
 };
 
+const resolveLanguageTagFromFileName = (
+  fileName: string,
+  config?: TranslateConfig,
+): string | null => {
+  if (!config) return null;
+
+  const idx = fileName.lastIndexOf(".");
+  const baseName = idx >= 0 ? fileName.slice(0, idx) : fileName;
+
+  const matched = LanguageList.find((item) => {
+    return (
+      resolveLanguageFileBaseName(
+        item.value,
+        config.file.languageFileNameRule,
+        config.file.languageFileNameMap,
+      ) === baseName
+    );
+  });
+
+  return matched?.value || null;
+};
+
 const normalizeLanguageKey = (key: string): string =>
   key.toLowerCase().replace(/[-_]/g, "");
 
@@ -162,6 +195,22 @@ const isKeyMatchingRule = (
   return /^[a-z]{2,3}-[A-Z]{2,3}$/.test(key);
 };
 
+const formatTranslationExecutionSummary = (
+  executionMetas: TranslationExecutionMeta[],
+): string => {
+  const chunkedLanguages = executionMetas.filter((item) => item.mode === "chunked");
+  const totalChunks = executionMetas.reduce(
+    (sum, item) => sum + item.chunkCount,
+    0,
+  );
+
+  if (chunkedLanguages.length === 0) {
+    return "本次翻译已按单次请求执行";
+  }
+
+  return `本次翻译已按上下文预算自动分批，共 ${totalChunks} 批`;
+};
+
 const HomePage = () => {
   const navigate = useNavigate();
   const location = useLocation();
@@ -172,9 +221,8 @@ const HomePage = () => {
     cachedOutputSelection,
   );
   const [sourceText, setSourceText] = useState('{\n  "name": "name"\n}');
-  const [lastChangeLog, setLastChangeLog] = useState<FileChangeSet | null>(
-    null,
-  );
+  const [lastChangeLog, setLastChangeLog] =
+    useState<TranslationChangeSummary | null>(null);
   const [matchedOutputFiles, setMatchedOutputFiles] = useState<
     MatchedOutputFile[]
   >([]);
@@ -348,43 +396,69 @@ const HomePage = () => {
     });
   };
 
-  const formatChangeLine = (change: {
-    key: string;
-    before?: unknown;
-    after?: unknown;
-  }): string => {
-    if (change.before !== undefined && change.after !== undefined) {
-      return `${change.key}: ${JSON.stringify(change.before)} -> ${JSON.stringify(change.after)}`;
-    }
-    if (change.after !== undefined) {
-      return `${change.key}: ${JSON.stringify(change.after)}`;
-    }
-    return `${change.key}: ${JSON.stringify(change.before)}`;
-  };
-
-  const renderChangeLogText = (changes: FileChangeSet): string => {
-    const lines: string[] = [`文件: ${changes.fileName}`];
-    lines.push(`新建文件: ${changes.created ? "是" : "否"}`);
-    lines.push(`更新(${changes.updated.length}):`);
-    lines.push(...changes.updated.map((item) => `- ${formatChangeLine(item)}`));
-    lines.push(`新增(${changes.added.length}):`);
-    lines.push(...changes.added.map((item) => `- ${formatChangeLine(item)}`));
-    lines.push(`删除(${changes.deleted.length}):`);
-    lines.push(...changes.deleted.map((item) => `- ${formatChangeLine(item)}`));
+  const renderChangeLogText = (summary: TranslationChangeSummary): string => {
+    const sourceEntryKeys = Object.keys(summary.sourceEntries);
+    const lines: string[] = [];
+    lines.push(`影响文件(${summary.affectedFileNames.length}):`);
+    lines.push(...summary.affectedFileNames.map((fileName) => `- ${fileName}`));
+    lines.push(`原词条(${sourceEntryKeys.length}):`);
+    lines.push(
+      ...sourceEntryKeys.map(
+        (key) => `- ${key}: ${JSON.stringify(summary.sourceEntries[key])}`,
+      ),
+    );
     return lines.join("\n");
   };
 
-  const showChangeResultModal = (changes: FileChangeSet) => {
+  const showChangeResultModal = (summary: TranslationChangeSummary) => {
     Modal.info({
       title: "本次操作变更",
-      width: 720,
+      width: 860,
       content: (
-        <pre className={styles.changeLogPre}>
-          {renderChangeLogText(changes)}
-        </pre>
+        <Space direction="vertical" size={12} style={{ width: "100%" }}>
+          <pre className={styles.changeLogPre}>
+            {renderChangeLogText(summary)}
+          </pre>
+          <div>
+            <Typography.Text strong>翻译结果 JSON</Typography.Text>
+            <pre className={styles.translationJsonPre}>
+              {JSON.stringify(summary.translatedEntries, null, 2)}
+            </pre>
+          </div>
+        </Space>
       ),
       okText: "确定",
     });
+  };
+
+  const ensureWritableTargetsReady = async (
+    sourceFileName: string,
+    languages: string[],
+  ): Promise<Set<string>> => {
+    if (!config || !output?.handle) return new Set<string>();
+
+    const approvedMissingFiles = new Set<string>();
+
+    for (const language of languages) {
+      const fileName = buildTargetFileName(
+        sourceFileName,
+        language,
+        config.file.languageFileNameRule,
+        config.file.languageFileNameMap,
+      );
+
+      try {
+        await output.handle.getFileHandle(fileName);
+      } catch {
+        const shouldCreate = await confirmCreateMissingFile(fileName);
+        if (!shouldCreate) {
+          throw new Error(`目标文件 ${fileName} 不存在，已取消写入`);
+        }
+        approvedMissingFiles.add(fileName);
+      }
+    }
+
+    return approvedMissingFiles;
   };
 
   const executeTranslation = async () => {
@@ -423,45 +497,124 @@ const HomePage = () => {
 
     setProcessing(true);
     try {
-      const translated = await runTranslation(parsedSource, config);
-      const sourceFileName = `${config.file.sourceLanguage}.json`;
-
-      const sourceWriteResult = await mergeAndWriteLanguageFile(
-        sourceFileName,
+      const fileExtension =
+        config.file.outputFileFormat || DEFAULT_OUTPUT_FILE_FORMAT;
+      const sourceFileName = buildTargetFileName(
+        `source.${fileExtension}`,
         config.file.sourceLanguage,
-        parsedSource,
-        config,
-        output || {},
-        confirmCreateMissingFile,
+        config.file.languageFileNameRule,
+        config.file.languageFileNameMap,
+      );
+      const fileLanguages = Array.from(
+        new Set(
+          matchedOutputFiles
+            .map((item) => resolveLanguageTagFromFileName(item.fileName, config))
+            .filter((item): item is string => Boolean(item))
+        ),
       );
 
-      const writeResult = await mergeAndWriteTranslatedFile(
-        sourceFileName,
-        translated.language,
-        translated.content,
-        config,
-        output || {},
-        confirmCreateMissingFile,
-      );
+      if (fileLanguages.length === 0) {
+        messageApi.error("输出目录中未找到可写回的语言文件");
+        return;
+      }
 
-      if (writeResult.mode === "direct") {
-        messageApi.success(
-          `翻译并写回成功: 源文件 ${sourceWriteResult.fileName}，目标文件 ${writeResult.fileName}`,
+      const translatedContents = new Map<string, Record<string, unknown>>();
+      const executionMetas: TranslationExecutionMeta[] = [];
+
+      const targetLanguages = fileLanguages.filter(
+        (language) => language !== config.file.sourceLanguage,
+      );
+      if (fileLanguages.includes(config.file.sourceLanguage)) {
+        translatedContents.set(config.file.sourceLanguage, parsedSource);
+      }
+
+      if (targetLanguages.length > 0) {
+        const translated = await runMultiLanguageTranslationAdaptive(
+          parsedSource,
+          config,
+          targetLanguages,
         );
-        if (writeResult.changes) {
-          setLastChangeLog(writeResult.changes);
-          showChangeResultModal(writeResult.changes);
-          appendOperationRecord({
-            id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-            operatedAt: new Date().toISOString(),
-            operationConfig: config,
-            sourceFileName,
-            outputDirectoryName: output.handle?.name || "",
-            fileChange: writeResult.changes,
-          });
+        targetLanguages.forEach((language) => {
+          translatedContents.set(language, translated.contents[language]);
+        });
+        executionMetas.push(translated.meta);
+      }
+
+      const approvedMissingFiles = await ensureWritableTargetsReady(
+        sourceFileName,
+        fileLanguages,
+      );
+      const writeResults = [];
+
+      for (const language of fileLanguages) {
+        const content = translatedContents.get(language);
+        if (!content) {
+          throw new Error(`语言 ${language} 的翻译结果缺失，已取消写回`);
         }
+
+        const writeResult = await mergeAndWriteLanguageFile(
+          sourceFileName,
+          language,
+          content,
+          config,
+          output || {},
+          async (fileName) => approvedMissingFiles.has(fileName),
+        );
+        writeResults.push(writeResult);
+      }
+
+      const lastDirectResult = [...writeResults]
+        .reverse()
+        .find((item) => item.mode === "direct" && item.changes);
+      const fileChanges = writeResults
+        .map((result) => result.changes)
+        .filter((changes): changes is FileChangeSet => Boolean(changes));
+      const translatedEntries = Object.fromEntries(
+        fileLanguages.map((language) => [
+          language,
+          translatedContents.get(language) || {},
+        ]),
+      ) as Record<string, Record<string, unknown>>;
+
+      if (fileChanges.length > 0) {
+        const summary: TranslationChangeSummary = {
+          affectedFileNames: writeResults.map((result) => result.fileName),
+          sourceEntries: parsedSource,
+          translatedEntries,
+          fileChanges,
+        };
+        setLastChangeLog(summary);
+        showChangeResultModal(summary);
+
+        appendOperationRecord({
+          id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+          operatedAt: new Date().toISOString(),
+          operationConfig: config,
+          sourceFileName,
+          outputDirectoryName: output.handle?.name || "",
+          affectedFileNames: summary.affectedFileNames,
+          sourceEntries: summary.sourceEntries,
+          translatedEntries: summary.translatedEntries,
+          fileChanges: summary.fileChanges,
+          fileChange: lastDirectResult?.changes || fileChanges[0],
+        });
+      }
+
+      const directCount = writeResults.filter(
+        (item) => item.mode === "direct",
+      ).length;
+      const files = await listDirectoryFiles(output.handle);
+      setMatchedOutputFiles(getMatchedOutputFiles(files, config));
+      setSourceLanguageOptions(getSourceLanguageOptions(files, config));
+
+      if (directCount > 0) {
+        messageApi.success(
+          `翻译并写回成功，共处理 ${directCount} 个语言文件。${formatTranslationExecutionSummary(executionMetas)}`,
+        );
       } else {
-        messageApi.success(`翻译成功，已下载文件: ${writeResult.fileName}`);
+        messageApi.success(
+          `翻译成功，已输出 ${writeResults.length} 个文件。${formatTranslationExecutionSummary(executionMetas)}`,
+        );
       }
     } catch (error) {
       messageApi.error((error as Error).message);
@@ -538,7 +691,7 @@ const HomePage = () => {
         : parseDocument(await sourceFile.text(), sourceOption.fileName);
 
       for (const targetKey of uniqueTargets) {
-        const translated = await runTranslation(
+        const translated = await runTranslationAdaptive(
           parsedSource.source,
           config,
           targetKey,
@@ -706,9 +859,9 @@ const HomePage = () => {
                 >
                   新语言 key
                 </Typography.Text>
-                {fields.map((field) => (
+                {fields.map(({ key, ...field }) => (
                   <Space
-                    key={field.key}
+                    key={key}
                     style={{ display: "flex", marginBottom: 8 }}
                     align="center"
                   >

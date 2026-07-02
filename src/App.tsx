@@ -6,6 +6,7 @@ import Layout from './layout';
 import defaultConfig from '../config.json';
 import type { TranslateConfig } from './modules/translate/types';
 import { DEFAULT_OUTPUT_FILE_FORMAT } from './common/file-format';
+import { normalizeModelApiUrl } from './api/constants';
 //@ts-expect-error
 import routes from '@@react-pages';
 import './App.css';
@@ -37,6 +38,7 @@ const migrateConfig = (input?: TranslateConfig): TranslateConfig => {
     },
     {},
   );
+  merged.apiUrl = normalizeModelApiUrl(merged.apiUrl);
 
   return merged;
 };

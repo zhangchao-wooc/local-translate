@@ -1,34 +1,12 @@
-import { SettingOutlined } from "@ant-design/icons";
 import { PageContainer, ProCard, ProLayout } from "@ant-design/pro-components";
-import { type ReactElement, useMemo } from "react";
+import { type ReactElement } from "react";
 import { useLocation, useNavigate } from "react-router";
 import defaultProps from "./_defaultProps.tsx";
 // import logoImage from '../assets/logo.png';
 
-type RouteItem = {
-  path?: string;
-  name?: string;
-};
-
-const resolveLayoutTitle = (pathname: string): string => {
-  if (pathname === "/setting") {
-    return "设置";
-  }
-
-  const routes = (defaultProps.route?.routes || []) as RouteItem[];
-  const matched = routes.find((item) => item.path === pathname);
-
-  return matched?.name || "Local Translate";
-};
-
 const Layout = (props: { children: ReactElement | null }) => {
   const navigate = useNavigate();
   const location = useLocation();
-
-  const currentTitle = useMemo(
-    () => resolveLayoutTitle(location.pathname),
-    [location.pathname],
-  );
 
   return (
     <div

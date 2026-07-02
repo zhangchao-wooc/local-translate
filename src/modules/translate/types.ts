@@ -35,10 +35,15 @@ export type ParsedTranslationDocument = {
 export type TranslateRequestPayload = {
   sourceLanguage: string;
   targetLanguage?: string;
+  targetLanguages?: string[];
   content: Record<string, unknown>;
 };
 
 export type TranslateResult = {
   language: string;
   content: Record<string, unknown>;
+};
+
+export type MultiLanguageTranslateResult = {
+  contents: Record<string, Record<string, unknown>>;
 };

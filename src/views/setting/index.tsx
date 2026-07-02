@@ -46,7 +46,15 @@ const FILE_FORMAT_OPTIONS = OUTPUT_FILE_FORMAT_OPTIONS.map((item) => ({
   value: item.value,
 }));
 
+const TOKEN_UNIT = 1000;
+
 const normalizeLanguageTag = (tag: string): string => tag.replace("_", "-");
+
+const toTokenInputValue = (maxTokens?: number): number | undefined =>
+  typeof maxTokens === "number" ? maxTokens / TOKEN_UNIT : undefined;
+
+const toTokenConfigValue = (maxTokens?: number): number | undefined =>
+  typeof maxTokens === "number" ? maxTokens * TOKEN_UNIT : undefined;
 
 const normalizeConfig = (config: TranslateConfig): TranslateConfig => {
   const sourceLanguage = normalizeLanguageTag(
@@ -90,6 +98,7 @@ const SettingPage = () => {
 
     return {
       ...normalized,
+      max_tokens: toTokenInputValue(normalized.max_tokens),
       file: {
         ...normalized.file,
         languageFileNameMapList,
@@ -138,6 +147,9 @@ const SettingPage = () => {
 
           const nextConfig: TranslateConfig = {
             ...(value as TranslateConfig),
+            max_tokens: toTokenConfigValue(
+              (value as TranslateConfig).max_tokens,
+            ),
             file: {
               ...fileValue,
               sourceLanguage: normalizeLanguageTag(fileValue.sourceLanguage),
@@ -183,7 +195,7 @@ const SettingPage = () => {
               />
               <ProFormDigit
                 name="max_tokens"
-                label="Max Tokens"
+                label="Max Tokens（k）"
                 width="xs"
                 min={1}
               />

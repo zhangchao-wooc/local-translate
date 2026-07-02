@@ -1,4 +1,5 @@
 import axios from './axios';
+import { normalizeModelApiUrl } from './constants';
 
 export type AIConfig = {
     apiUrl: string;
@@ -88,6 +89,8 @@ export const AIApi = async (prompt: string, config?: AIConfig): Promise<AIResult
         throw new Error('apiUrl is required');
     }
 
+    const apiUrl = normalizeModelApiUrl(config.apiUrl);
+
     const payload = {
         model: config.model || 'gpt-4o-mini',
         messages: [
@@ -105,7 +108,7 @@ export const AIApi = async (prompt: string, config?: AIConfig): Promise<AIResult
         max_tokens: config.max_tokens || 4000,
     };
 
-    const response = await axios.post(config.apiUrl, payload, {
+    const response = await axios.post(apiUrl, payload, {
         headers: {
             Authorization: config.apiKey ? `Bearer ${config.apiKey}` : undefined,
             'Content-Type': 'application/json',
