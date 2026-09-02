@@ -1,14 +1,4 @@
 import axios from './axios';
-import { normalizeModelApiUrl } from './constants';
-
-export type AIConfig = {
-    apiUrl: string;
-    apiKey?: string;
-    model?: string;
-    temperature?: number;
-    max_tokens?: number;
-};
-
 export type AIResult = {
     ok: boolean;
     text: string;
@@ -84,15 +74,8 @@ const tryParseJSON = (text: string): Record<string, unknown> | undefined => {
     return undefined;
 };
 
-export const AIApi = async (prompt: string, config?: AIConfig): Promise<AIResult> => {
-    if (!config?.apiUrl) {
-        throw new Error('apiUrl is required');
-    }
-
-    const apiUrl = normalizeModelApiUrl(config.apiUrl);
-
+export const AIApi = async (prompt: string): Promise<AIResult> => {
     const payload = {
-        model: config.model || 'gpt-4o-mini',
         messages: [
             {
                 role: 'system',
@@ -104,13 +87,11 @@ export const AIApi = async (prompt: string, config?: AIConfig): Promise<AIResult
             },
         ],
         response_format: { type: 'json_object' },
-        temperature: config.temperature,
-        max_tokens: config.max_tokens || 4000,
+        max_tokens: 4000,
     };
 
-    const response = await axios.post(apiUrl, payload, {
+    const response = await axios.post('http://127.0.0.1:8000/api/v1/llm/chat/completions', payload, {
         headers: {
-            Authorization: config.apiKey ? `Bearer ${config.apiKey}` : undefined,
             'Content-Type': 'application/json',
         },
     });

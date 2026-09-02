@@ -48,6 +48,7 @@ const Layout = (props: { children: ReactElement | null }) => {
           src: "https://gw.alipayobjects.com/zos/antfincdn/efFD%24IOql2/weixintupian_20170331104822.jpg",
           title: "",
           size: "small",
+          onClick: () => navigate("/profile"),
         }}
         // actionsRender={(actionProps) => {
         //   if (actionProps.isMobile) return [];

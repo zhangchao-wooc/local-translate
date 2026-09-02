@@ -1,12 +1,16 @@
 /* eslint-disable @typescript-eslint/ban-ts-comment */
-import { Suspense, useEffect } from 'react';
-import { useRoutes } from 'react-router-dom';
+import { Suspense, useEffect, useState } from 'react';
+import { Navigate, useLocation, useRoutes } from 'react-router-dom';
 import { useLocalStorageState } from 'ahooks';
 import Layout from './layout';
 import defaultConfig from '../config.json';
 import type { TranslateConfig } from './modules/translate/types';
 import { DEFAULT_OUTPUT_FILE_FORMAT } from './common/file-format';
-import { normalizeModelApiUrl } from './api/constants';
+import {
+  hasAuthSession,
+  initializeAuthSession,
+  subscribeToAuthSession,
+} from './modules/auth/session';
 //@ts-expect-error
 import routes from '@@react-pages';
 import './App.css';
@@ -14,15 +18,19 @@ import './App.css';
 const normalizeLanguageTag = (tag: string): string => tag.replace('_', '-');
 
 const migrateConfig = (input?: TranslateConfig): TranslateConfig => {
+  const cleanInput = { ...(input || {}) } as TranslateConfig & Record<string, unknown>;
+  ['apiUrl', 'apiKey', 'model', 'temperature', 'max_tokens'].forEach((key) => {
+    delete cleanInput[key];
+  });
   const merged = {
     ...(defaultConfig as TranslateConfig),
-    ...(input || {}),
+    ...cleanInput,
     file: {
       ...(defaultConfig as TranslateConfig).file,
-      ...(input?.file || {}),
+      ...(cleanInput.file || {}),
       languageFileNameMap: {
         ...(defaultConfig as TranslateConfig).file.languageFileNameMap,
-        ...(input?.file?.languageFileNameMap || {}),
+        ...(cleanInput.file?.languageFileNameMap || {}),
       },
     },
   };
@@ -38,21 +46,32 @@ const migrateConfig = (input?: TranslateConfig): TranslateConfig => {
     },
     {},
   );
-  merged.apiUrl = normalizeModelApiUrl(merged.apiUrl);
-
   return merged;
 };
 
 function App() {
   const [config, setConfig] = useLocalStorageState<TranslateConfig>('config');
+  const [isAuthenticated, setIsAuthenticated] = useState(hasAuthSession);
+  const location = useLocation();
 
   useEffect(() => {
     setConfig(migrateConfig(config));
   }, []);
 
+  useEffect(() => {
+    const disposeSession = initializeAuthSession();
+    return disposeSession;
+  }, []);
+
+  useEffect(() => subscribeToAuthSession(() => setIsAuthenticated(hasAuthSession())), []);
+
+  const page = useRoutes(routes);
+  if (location.pathname === '/login') return <Suspense fallback={<p>Loading...</p>}>{page}</Suspense>;
+  if (!isAuthenticated) return <Navigate to="/login" replace />;
+
   return (
     <Suspense fallback={<p>Loading...</p>}>
-      <Layout>{useRoutes(routes)}</Layout>
+      <Layout>{page}</Layout>
     </Suspense>
   );
 }

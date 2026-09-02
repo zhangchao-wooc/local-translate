@@ -33,18 +33,6 @@ const estimateTokens = (value: string): number => {
   return Math.ceil(value.length / 2.5);
 };
 
-const estimateContextWindow = (model?: string): number => {
-  const normalized = model?.toLowerCase() || '';
-
-  if (!normalized) return DEFAULT_CONTEXT_WINDOW;
-  if (normalized.includes('gpt-4o') || normalized.includes('gpt-4.1')) return 128000;
-  if (normalized.includes('claude-3') || normalized.includes('gemini-1.5')) return 128000;
-  if (normalized.includes('deepseek') || normalized.includes('qwen')) return 64000;
-  if (normalized.includes('mini')) return 32000;
-
-  return DEFAULT_CONTEXT_WINDOW;
-};
-
 const buildPayload = (
   source: Record<string, unknown>,
   config: TranslateConfig,
@@ -71,7 +59,7 @@ const estimateTranslationMeta = (
     targetLanguages?.length || (targetLanguage ? 1 : 1),
   );
   const estimatedOutputTokens = Math.min(
-    config.max_tokens || 4000,
+    4000,
     Math.max(
       MIN_OUTPUT_TOKENS,
       Math.ceil(
@@ -81,7 +69,7 @@ const estimateTranslationMeta = (
       ),
     ),
   );
-  const contextWindow = estimateContextWindow(config.model);
+  const contextWindow = DEFAULT_CONTEXT_WINDOW;
 
   return {
     estimatedInputTokens,
@@ -196,13 +184,7 @@ export const runTranslation = async (
   const payload = buildPayload(source, config, targetLanguage);
 
   const prompt = buildPrompt(config.prompt, payload);
-  const result = await AIApi(prompt, {
-    apiUrl: config.apiUrl,
-    apiKey: config.apiKey,
-    model: config.model,
-    max_tokens: config.max_tokens,
-    temperature: config.temperature,
-  });
+  const result = await AIApi(prompt);
 
   const parsed = parseTranslationResponse(result);
 
@@ -224,13 +206,7 @@ export const runMultiLanguageTranslation = async (
 
   const payload = buildPayload(source, config, undefined, targetLanguages);
   const prompt = buildPrompt(config.prompt, payload);
-  const result = await AIApi(prompt, {
-    apiUrl: config.apiUrl,
-    apiKey: config.apiKey,
-    model: config.model,
-    max_tokens: config.max_tokens,
-    temperature: config.temperature,
-  });
+  const result = await AIApi(prompt);
   const parsed = parseTranslationResponse(result);
 
   return {

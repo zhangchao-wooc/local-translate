@@ -77,8 +77,8 @@
 }
 
 .section {
-  height: calc(100% - 80px);
-  min-height: 520px;
+  height: auto;
+  min-height: 0;
   display: grid;
   grid-template-columns: 1fr;
   gap: 12px;
@@ -92,7 +92,8 @@
   flex-direction: column;
   gap: 8px;
   min-height: 0;
-  
+  height: clamp(360px, calc(100vh - 320px), 760px);
+  min-width: 0;
 }
 
 .panelActions {
@@ -110,6 +111,7 @@
 .editor {
   flex: 1;
   min-height: 0;
+  min-width: 0;
   border-radius: var(--ant-border-radius-lg);
   overflow: hidden;
 }
@@ -118,10 +120,9 @@
 @media (max-width: 960px) {
   .section {
     grid-template-columns: 1fr;
-    height: auto;
   }
 
   .panel {
-    height: 420px;
+    height: clamp(300px, calc(100vh - 270px), 560px);
   }
 }

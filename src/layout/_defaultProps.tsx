@@ -22,7 +22,12 @@ export default {
         path: '/setting',
         name: '设置',
         icon: <SettingOutlined />
-      }
+      },
+      {
+        path: '/profile',
+        name: '个人信息',
+        hideInMenu: true,
+      },
     ],
   },
   location: {

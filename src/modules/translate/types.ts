@@ -4,11 +4,6 @@ export type FileFormat = 'json' | 'csv' | 'xml' | 'xlsx';
 export type LanguageFileNameRule = 'hyphen' | 'underscore' | 'language';
 
 export type TranslateConfig = {
-  apiUrl: string;
-  apiKey?: string;
-  model?: string;
-  temperature?: number;
-  max_tokens?: number;
   prompt: string;
   file: {
     inputPath?: string;

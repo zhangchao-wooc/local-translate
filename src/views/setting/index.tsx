@@ -1,7 +1,6 @@
 import { useMemo, useRef, useState } from "react";
 import {
   ProForm,
-  ProFormDigit,
   ProFormGroup,
   ProFormSelect,
   ProFormText,
@@ -46,21 +45,17 @@ const FILE_FORMAT_OPTIONS = OUTPUT_FILE_FORMAT_OPTIONS.map((item) => ({
   value: item.value,
 }));
 
-const TOKEN_UNIT = 1000;
-
 const normalizeLanguageTag = (tag: string): string => tag.replace("_", "-");
 
-const toTokenInputValue = (maxTokens?: number): number | undefined =>
-  typeof maxTokens === "number" ? maxTokens / TOKEN_UNIT : undefined;
-
-const toTokenConfigValue = (maxTokens?: number): number | undefined =>
-  typeof maxTokens === "number" ? maxTokens * TOKEN_UNIT : undefined;
-
 const normalizeConfig = (config: TranslateConfig): TranslateConfig => {
+  const cleanConfig = { ...config } as TranslateConfig & Record<string, unknown>;
+  ['apiUrl', 'apiKey', 'model', 'temperature', 'max_tokens'].forEach((key) => {
+    delete cleanConfig[key];
+  });
   const sourceLanguage = normalizeLanguageTag(
-    config.file.sourceLanguage || "en-US",
+    cleanConfig.file.sourceLanguage || "en-US",
   );
-  const oldMap = config.file.languageFileNameMap || {};
+  const oldMap = cleanConfig.file.languageFileNameMap || {};
 
   const normalizedMap = Object.entries(oldMap).reduce<Record<string, string>>(
     (acc, [key, value]) => {
@@ -71,9 +66,9 @@ const normalizeConfig = (config: TranslateConfig): TranslateConfig => {
   );
 
   return {
-    ...config,
+    ...cleanConfig,
     file: {
-      ...config.file,
+      ...cleanConfig.file,
       sourceLanguage,
       outputFileFormat: config.file.outputFileFormat || DEFAULT_OUTPUT_FILE_FORMAT,
       languageFileNameRule: config.file.languageFileNameRule || "hyphen",
@@ -98,7 +93,6 @@ const SettingPage = () => {
 
     return {
       ...normalized,
-      max_tokens: toTokenInputValue(normalized.max_tokens),
       file: {
         ...normalized.file,
         languageFileNameMapList,
@@ -147,9 +141,6 @@ const SettingPage = () => {
 
           const nextConfig: TranslateConfig = {
             ...(value as TranslateConfig),
-            max_tokens: toTokenConfigValue(
-              (value as TranslateConfig).max_tokens,
-            ),
             file: {
               ...fileValue,
               sourceLanguage: normalizeLanguageTag(fileValue.sourceLanguage),
@@ -165,42 +156,13 @@ const SettingPage = () => {
         }}
       >
         <div className={styles.section}>
-          <Typography.Title level={5}>模型设置</Typography.Title>
-          <ProFormText name="model" label="模型名称" width="md" />
-          <ProFormGroup>
-            <ProFormText
-              name="apiUrl"
-              label="API URL"
-              width="lg"
-              rules={[{ required: true }]}
-            />
-            <ProFormText name="apiKey" label="API Key" width="lg" />
-          </ProFormGroup>
+          <Typography.Title level={5}>翻译设置</Typography.Title>
           <ProFormTextArea
             name="prompt"
             label="提示词"
             width="xl"
             rules={[{ required: true }]}
           />
-          <div className={styles.modelAdvanced}>
-            <Typography.Text strong>模型高级设置</Typography.Text>
-            <ProFormGroup>
-              <ProFormDigit
-                name="temperature"
-                label="Temperature"
-                width="xs"
-                min={0}
-                max={2}
-                step={0.1}
-              />
-              <ProFormDigit
-                name="max_tokens"
-                label="Max Tokens（k）"
-                width="xs"
-                min={1}
-              />
-            </ProFormGroup>
-          </div>
         </div>
 
         <div className={styles.section}>

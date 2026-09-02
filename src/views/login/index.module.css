@@ -1,0 +1,40 @@
+.page {
+  align-items: center;
+  background: #f4f7fb;
+  box-sizing: border-box;
+  display: flex;
+  justify-content: center;
+  min-height: 100vh;
+  padding: 24px;
+}
+
+.panel {
+  background: #ffffff;
+  border: 1px solid #dfe5ee;
+  border-radius: 8px;
+  box-shadow: 0 12px 30px rgb(21 37 61 / 10%);
+  padding: 36px;
+  width: min(100%, 400px);
+}
+
+.brand {
+  color: #1677ff;
+  font-size: 17px;
+  font-weight: 600;
+  margin-bottom: 24px;
+}
+
+.title {
+  margin-bottom: 4px !important;
+}
+
+.subtitle {
+  color: #667085;
+  margin-bottom: 28px !important;
+}
+
+@media (max-width: 480px) {
+  .panel {
+    padding: 28px 22px;
+  }
+}
