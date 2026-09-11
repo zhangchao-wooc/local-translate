@@ -42,7 +42,6 @@ import {
 } from "../../modules/translate/translator";
 import type { TranslateConfig } from "../../modules/translate/types";
 import { appendOperationRecord } from "../../modules/operation-history/storage";
-import { LanguageList } from "../../common/language";
 import {
   DEFAULT_OUTPUT_FILE_FORMAT,
   type OutputFileFormat,
@@ -98,27 +97,13 @@ const getMatchedOutputFiles = (
 ): MatchedOutputFile[] => {
   if (!config) return [];
 
-  const expectedBaseNames = new Set(
-    LanguageList.map((item) =>
-      resolveLanguageFileBaseName(
-        item.value,
-        config.file.languageFileNameRule,
-        config.file.languageFileNameMap,
-      ),
-    ),
-  );
-
   return files
     .filter(
       (item) =>
         item.extension ===
         (config.file.outputFileFormat || DEFAULT_OUTPUT_FILE_FORMAT),
     )
-    .filter((item) => {
-      const idx = item.fileName.lastIndexOf(".");
-      const baseName = idx >= 0 ? item.fileName.slice(0, idx) : item.fileName;
-      return expectedBaseNames.has(baseName);
-    })
+    .filter((item) => resolveLanguageTagFromFileName(item.fileName, config) !== null)
     .map((item) => ({
       fileName: item.fileName,
       format: item.extension as OutputFileFormat,
@@ -135,17 +120,20 @@ const resolveLanguageTagFromFileName = (
   const idx = fileName.lastIndexOf(".");
   const baseName = idx >= 0 ? fileName.slice(0, idx) : fileName;
 
-  const matched = LanguageList.find((item) => {
+  const matched = Object.keys(config.file.languageFileNameMap || {}).find((languageTag) => {
     return (
       resolveLanguageFileBaseName(
-        item.value,
+        languageTag,
         config.file.languageFileNameRule,
         config.file.languageFileNameMap,
       ) === baseName
     );
   });
 
-  return matched?.value || null;
+  if (matched) return matched;
+
+  if (!isKeyMatchingRule(baseName, config.file.languageFileNameRule)) return null;
+  return baseName.replace(/_/g, "-");
 };
 
 const normalizeLanguageKey = (key: string): string =>
